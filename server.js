@@ -1,9 +1,9 @@
 import dotenv from 'dotenv';
 import fetch from 'node-fetch';
 import TelegramBot from 'node-telegram-bot-api';
-import winston from 'winston';
-import moment from 'moment';
 import Sequelize from 'sequelize';
+import uuid from 'uuid';
+import moment from 'moment';
 
 dotenv.config({ path: '.env' });
 
@@ -58,9 +58,7 @@ bot.on('message', (msg, type) => {
 
   if (text === '/start') {
     bot.sendMessage(chatId, 'Взглянуть на 🌡️ в Киеве: /weather');
-  }
-
-  if (text === '/weather') {
+  } else if (text === '/weather') {
     WeatherConsumer.findOrCreate({
       where: {
         chat_id: chatId,
@@ -79,7 +77,7 @@ bot.on('message', (msg, type) => {
         {
           where: { chat_id: foundChat },
         });
-    }).catch(e => logger.error(e));
+    }).catch(error => console.log(`[${moment(Date.now()).format()}] ${error}`));
 
     const url = `http://api.weatherstack.com/current?access_key=${WEATHER_TOKEN}&query=${DEFAULT_LOCATION}`;
     fetch(url)
@@ -88,8 +86,22 @@ bot.on('message', (msg, type) => {
         bot.sendMessage(chatId, messageRenderer(result));
       })
       .catch(error => {
-        logger.error(`[${moment(Date.now()).format()}] ${error}`);
+        console.log(`[${moment(Date.now()).format()}] ${error}`);
         bot.sendMessage(chatId, 'Ooops, something goes wrong');
+      });
+  } else {
+    //dialogflow case
+    fetch(encodeURI(`https://api.dialogflow.com/v1/query?v=20150910&contexts=shop&lang=ru&query=${text}&sessionId=${uuid.v4()}&timezone=Ukraine/Kiev`)
+      , {
+        method: 'GET',
+        headers: {
+          'Content-Type':'application/json',
+          'Authorization':`Bearer ${process.env.DIALOGFLOW_AUTH_BEARER}`,
+        },
+      })
+      .then(res => res.json())
+      .then(i => {
+        bot.sendMessage(chatId, i.result.fulfillment.speech);
       });
   }
 });
