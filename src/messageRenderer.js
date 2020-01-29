@@ -17,7 +17,7 @@ const messageRenderer = (param) => {
     cloudMoji = '☁️';
   }
 
-  return `Сейчас ${temperature}°C\nчувствуется как ${feelslike}°C\n${cloudMoji},  вероятность ☔ = ${precip}%`;
+  return `Сейчас ${temperature}°C\nчувствуется как ${feelslike}°C\n${cloudMoji},  вероятность ☔ = ${precip*10}%`;
 };
 
 export { messageRenderer };
