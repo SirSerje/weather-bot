@@ -4,53 +4,51 @@ import TelegramBot from 'node-telegram-bot-api';
 import Sequelize from 'sequelize';
 import uuid from 'uuid';
 import moment from 'moment';
+import { DialogFlow } from './dialogflow';
+import { messageRenderer } from './messageRenderer';
+import { UserModel } from '../db/models/UserModel';
 
+
+//------------------- init app ------------------
 dotenv.config({ path: '.env' });
+const {
+  API_KEY,
+  WEATHER_KEY,
+  MYSQL_DATABASE,
+  MYSQL_USER,
+  MYSQL_PASS,
+  MYSQL_HOST,
+  DIALOGFLOW_PROJECT_ID,
+// eslint-disable-next-line no-undef
+} = process.env;
 
-const bot = new TelegramBot(process.env.API_KEY, { polling: true });
+const bot = new TelegramBot(API_KEY, { polling: true });
+
 const DEFAULT_LOCATION = 'Kiev';
-const WEATHER_TOKEN = process.env.WEATHER_KEY;
+const WEATHER_TOKEN = WEATHER_KEY;
 
-
-const sequelize = new Sequelize(process.env.MYSQL_DATABASE, process.env.MYSQL_USER, process.env.MYSQL_PASS, {
-  host: process.env.MYSQL_HOST,
+const sequelize = new Sequelize(MYSQL_DATABASE, MYSQL_USER, MYSQL_PASS, {
+  host: MYSQL_HOST,
   dialect: 'mysql',
   define: {
     timestamps: false,
   },
 });
 
-const UserModel = (sequelize, type) => {
-  return sequelize.define('weather_consumers', {
-    id: {
-      type: type.INTEGER,
-      primaryKey: true,
-      autoIncrement: true,
-    },
-    chat_id: {
-      type: type.INTEGER,
-      allowNull: true,
-    },
-    name: {
-      type: type.STRING(255),
-      allowNull: true,
-    },
-    visits: {
-      type: type.INTEGER,
-      allowNull: true,
-    },
-  });
-};
-
 const WeatherConsumer = UserModel(sequelize, Sequelize);
+const dialogflow = new DialogFlow(DIALOGFLOW_PROJECT_ID);
 
 sequelize.authenticate().then(() => {
   console.log('Connection established successfully.');
 }).catch(err => {
   console.error('Unable to connect to the database:', err);
 });
+//------------------- end of init app ------------------
 
-bot.on('message', (msg, type) => {
+bot.on('message', handleInput);
+
+async function handleInput(msg, type) {
+
   const { first_name, last_name, username } = msg.from;
   const chatId = msg.chat.id;
   const { text } = msg;
@@ -90,40 +88,14 @@ bot.on('message', (msg, type) => {
         bot.sendMessage(chatId, 'Ooops, something goes wrong');
       });
   } else {
-    //dialogflow case
-    fetch(encodeURI(`https://api.dialogflow.com/v1/query?v=20150910&contexts=shop&lang=ru&query=${text}&sessionId=${uuid.v4()}&timezone=Ukraine/Kiev`)
-      , {
-        method: 'GET',
-        headers: {
-          'Content-Type':'application/json',
-          'Authorization':`Bearer ${process.env.DIALOGFLOW_AUTH_BEARER}`,
-        },
-      })
-      .then(res => res.json())
-      .then(i => {
-        bot.sendMessage(chatId, i.result.fulfillment.speech);
-      });
+    // DialogFlow speech request (Google API v2 based)
+    let dialogFlowResponse;
+    try {
+      dialogFlowResponse = await dialogflow.sendTextMessageToDialogFlow(text, uuid.v4());
+    } catch (error) {
+      console.log('troubles with dialogflow');
+      await bot.sendMessage(chatId, 'искувственный интеллект немного потерпел крушение, давай пообщаемся позже');
+    }
+    await bot.sendMessage(chatId, dialogFlowResponse[0].queryResult.fulfillmentText);
   }
-});
-
-const messageRenderer = (param) => {
-  if (!param) {
-    return null;
-  }
-
-  const { current } = param;
-  const { cloudcover, feelslike, temperature, precip } = current;
-
-  let cloudMoji;
-  if (cloudcover < 25) {
-    cloudMoji = '☀️';
-  } else if (cloudcover > 25 && cloudcover < 50) {
-    cloudMoji = '🌤';
-  } else if (cloudcover > 50 && cloudcover < 75) {
-    cloudMoji = '🌥️';
-  } else {
-    cloudMoji = '☁️';
-  }
-
-  return `Сейчас ${temperature}°C\nчувствуется как ${feelslike}°C\n${cloudMoji},  вероятность ☔ = ${precip}%`;
-};
+}
